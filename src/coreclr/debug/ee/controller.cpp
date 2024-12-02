@@ -5826,6 +5826,23 @@ static bool IsTailCallThatReturns(const BYTE * ip, ControllerStackInfo* info)
     return retAddr == tailCallAwareRetAddr;
 }
 
+static bool IsStoreTailCallArgs(const BYTE * ip)
+{
+    TraceDestination trace;
+    if (!g_pEEInterface->TraceStub(ip, &trace) || !g_pEEInterface->FollowTrace(&trace))
+    {
+        return false;
+    }
+
+    MethodDesc* pTargetMD =
+        trace.GetTraceType() == TRACE_UNJITTED_METHOD
+        ? trace.GetMethodDesc()
+        : g_pEEInterface->GetNativeCodeMethodDesc(trace.GetAddress());
+
+
+    return (pTargetMD->IsDynamicMethod() && pTargetMD->AsDynamicMethodDesc()->GetILStubType() == DynamicMethodDesc::StubTailCallStoreArgs);
+}
+
 // bool DebuggerStepper::TrapStep()   TrapStep attepts to set a
 // patch at the next IL instruction to be executed.  If we're stepping in &
 // the next IL instruction is a call, then this'll set a breakpoint inside
@@ -6039,6 +6056,11 @@ bool DebuggerStepper::TrapStep(ControllerStackInfo *info, bool in)
                     fCallingIntoFunclet = IsAddrWithinMethodIncludingFunclet(ji, info->m_activeFrame.md, walker.GetNextIP()) &&
                         ((CORDB_ADDRESS)(SIZE_T)walker.GetNextIP() != ji->m_addrOfCode);
 #endif
+                    if (in && IsStoreTailCallArgs(walker.GetNextIP()))
+                    {
+                        EnableMethodEnter();
+                        return true;
+                    }
                     // At this point, we know that the call/branch target is not
                     // in the current method. The possible cases is that this is
                     // a jump or a tailcall-via-helper. There are two separate
